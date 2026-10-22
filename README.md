@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Parkit
 
-## Getting Started
+שוק לחניות פרטיות לפי שעה, יום או תקופה, החל מתל אביב. בעלי חניות משכירים את השעות שבהן החניה ממילא ריקה, ונהגים מזמינים מראש עם מחיר סגור.
 
-First, run the development server:
+## מה יש בגרסה הזו
+
+- מפה ורשימה של חניות פנויות, עם סינון: פנוי עכשיו, שער שנפתח מהטלפון, עמדת טעינה, מקורה.
+- דף חניה עם חלונות הזמינות, בחירת שעות ומחיר מחושב (מחיר לשעה עם תקרה יומית, ועוד 15% דמי שירות).
+- פרסום חניה עם תבניות זמינות (ימי חול, לילות, כל הזמן, סופי שבוע) והערכת הכנסה חודשית.
+- הכתובת המדויקת והוראות הכניסה נחשפות רק לנהג שהזמין. במפה מוצג מיקום משוער בלבד.
+- הגנה מהזמנה כפולה ברמת מסד הנתונים (exclusion constraint), ומחיר שמחושב בשרת.
+- כניסה עם קישור במייל (Supabase Auth).
+
+עדיין לא כלול: תשלום אמיתי, פתיחת שער חכם, דירוגים, התראות.
+
+## הרצה מקומית
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+בלי משתני סביבה האפליקציה רצה **במצב הדגמה**: נתוני דוגמה בזיכרון ומשתמש דמו מחובר. הנתונים מתאפסים בכל הפעלה.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## חיבור ל-Supabase
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. צרו פרויקט ב-[supabase.com](https://supabase.com).
+2. הריצו את `supabase/migrations/0001_init.sql` ב-SQL Editor.
+3. ב-Authentication → URL Configuration הוסיפו את `http://localhost:3000/auth/callback` (ואת כתובת הפרודקשן).
+4. העתיקו את `.env.example` ל-`.env.local` ומלאו את ה-URL וה-anon key.
 
-## Learn More
+## בדיקות
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm test     # תמחור, זמינות ואזורי זמן
+npm run lint
+npm run build
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## מבנה
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `src/lib/repo/` שכבת נתונים: `demo.ts` (בזיכרון) ו-`supabase.ts`. הבחירה ביניהן ב-`index.ts`.
+- `src/lib/pricing.ts` חישוב מחיר. חייב להתאים ל-`quote_agorot` ב-SQL.
+- `src/lib/time.ts` חלונות זמינות ואזור זמן ירושלים.
+- `supabase/migrations/` סכמה, RLS ופונקציית `book_spot`.
