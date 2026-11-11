@@ -25,11 +25,15 @@ export function covers(windows: Window[], start: Date, end: Date): boolean {
 
 /** Wall-clock hour:minute on a Jerusalem calendar day, as a UTC Date. */
 export function jerusalemTime(day: Date, hour: number, minute = 0): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" })
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" })
     .format(day)
     .split("-")
     .map(Number);
-  const guess = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], hour, minute));
+  return fromWallClock(y, m, d, hour, minute);
+}
+
+function fromWallClock(y: number, m: number, d: number, hour: number, minute: number): Date {
+  const guess = new Date(Date.UTC(y, m - 1, d, hour, minute));
   const offset = tzOffsetMinutes(guess);
   return new Date(guess.getTime() - offset * 60000);
 }
@@ -38,6 +42,29 @@ function tzOffsetMinutes(d: Date): number {
   const local = new Date(d.toLocaleString("en-US", { timeZone: TZ }));
   const utc = new Date(d.toLocaleString("en-US", { timeZone: "UTC" }));
   return Math.round((local.getTime() - utc.getTime()) / 60000);
+}
+
+/**
+ * Value for <input type="datetime-local">, always in Israel time, so the server render,
+ * the browser and a driver whose phone is set to another zone all agree.
+ */
+export function toJerusalemInput(d: Date): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    })
+      .formatToParts(d)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+/** Inverse of toJerusalemInput. Returns an invalid Date for malformed input. */
+export function fromJerusalemInput(value: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!m) return new Date(NaN);
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  return fromWallClock(y, mo, d, h, mi);
 }
 
 export type Preset = "weekdays" | "nights" | "always" | "weekend";
@@ -86,4 +113,14 @@ export function formatRange(w: Window): string {
     ? w.end.toLocaleTimeString("he-IL", { timeZone: TZ, hour: "2-digit", minute: "2-digit" })
     : formatWhen(w.end);
   return `${formatWhen(w.start)} – ${endFmt}`;
+}
+
+/** Windows for the next `days` days that start where the existing availability ends, so they never overlap it. */
+export function extensionWindows(preset: Preset, existing: Window[], now: Date, days = 14): Window[] {
+  const lastEnd = existing.reduce((max, w) => Math.max(max, w.end.getTime()), 0);
+  return presetWindows(preset, new Date(Math.max(now.getTime(), lastEnd)), days);
+}
+
+export function isPreset(v: unknown): v is Preset {
+  return typeof v === "string" && v in PRESET_LABEL;
 }

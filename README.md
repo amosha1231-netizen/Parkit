@@ -10,6 +10,8 @@
 - הכתובת המדויקת והוראות הכניסה נחשפות רק לנהג שהזמין. במפה מוצג מיקום משוער בלבד.
 - הגנה מהזמנה כפולה ברמת מסד הנתונים (exclusion constraint), ומחיר שמחושב בשרת.
 - כניסה עם קישור במייל (Supabase Auth).
+- מסך משכיר: השהיה וחידוש של פרסום, הוספת שבועיים זמינות בלחיצה, הזמנות שנכנסו והכנסה ב-30 הימים האחרונים.
+- ההזמנות שלי: הזמנות קרובות וקודמות, ניווט ב-Waze, הוספה ליומן, וביטול עד שעה לפני ההתחלה (נאכף גם במסד הנתונים).
 
 עדיין לא כלול: תשלום אמיתי, פתיחת שער חכם, דירוגים, התראות.
 
@@ -25,9 +27,10 @@ npm run dev
 ## חיבור ל-Supabase
 
 1. צרו פרויקט ב-[supabase.com](https://supabase.com).
-2. הריצו את `supabase/migrations/0001_init.sql` ב-SQL Editor.
+2. הריצו ב-SQL Editor, לפי הסדר, את `supabase/migrations/0001_init.sql` ואז את `0002_host_tools_and_safety.sql`.
 3. ב-Authentication → URL Configuration הוסיפו את `http://localhost:3000/auth/callback` (ואת כתובת הפרודקשן).
-4. העתיקו את `.env.example` ל-`.env.local` ומלאו את ה-URL וה-anon key.
+4. העתיקו את `.env.example` ל-`.env.local` ומלאו את ה-URL, ה-anon key ואת `NEXT_PUBLIC_SITE_URL`.
+5. בפריסה ל-Vercel הגדירו את אותם שלושה משתנים ב-Settings → Environment Variables.
 
 ## בדיקות
 

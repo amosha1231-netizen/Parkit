@@ -17,23 +17,29 @@ const FILTERS: [Filter, string][] = [
   ["covered", "מקורה"],
 ];
 
+type Sort = "soon" | "price";
+
 export function isFreeNow(s: SpotWithAvailability, now = new Date()) {
   return s.free.some((w) => w.start <= now && w.end > now);
 }
 
 export function SpotBrowser({ spots }: { spots: SpotWithAvailability[] }) {
   const [active, setActive] = useState<Set<Filter>>(new Set());
-  const visible = useMemo(
-    () =>
-      spots.filter(
-        (s) =>
-          (!active.has("now") || isFreeNow(s)) &&
-          (!active.has("app") || s.access === "app") &&
-          (!active.has("ev") || s.hasEv) &&
-          (!active.has("covered") || s.spotType !== "open"),
-      ),
-    [spots, active],
-  );
+  const [sort, setSort] = useState<Sort>("soon");
+  const visible = useMemo(() => {
+    const list = spots.filter(
+      (s) =>
+        (!active.has("now") || isFreeNow(s)) &&
+        (!active.has("app") || s.access === "app") &&
+        (!active.has("ev") || s.hasEv) &&
+        (!active.has("covered") || s.spotType !== "open"),
+    );
+    return list.sort((a, b) =>
+      sort === "price"
+        ? a.priceHourAgorot - b.priceHourAgorot
+        : a.free[0].start.getTime() - b.free[0].start.getTime() || a.priceHourAgorot - b.priceHourAgorot,
+    );
+  }, [spots, active, sort]);
   const toggle = (f: Filter) =>
     setActive((prev) => {
       const next = new Set(prev);
@@ -46,15 +52,29 @@ export function SpotBrowser({ spots }: { spots: SpotWithAvailability[] }) {
     <div className="grid">
       <SpotMap spots={visible} />
       <div>
-        <div className="chips">
-          {FILTERS.map(([f, label]) => (
-            <button key={f} className="chip" aria-pressed={active.has(f)} onClick={() => toggle(f)}>
-              {label}
-            </button>
-          ))}
+        <div className="toolbar">
+          <div className="chips">
+            {FILTERS.map(([f, label]) => (
+              <button key={f} className="chip" aria-pressed={active.has(f)} onClick={() => toggle(f)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <select aria-label="מיון" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+            <option value="soon">הכי מוקדם</option>
+            <option value="price">הכי זול</option>
+          </select>
         </div>
+        <p className="meta" style={{ margin: "0 0 8px" }}>
+          {visible.length} חניות פנויות{visible.length !== spots.length && ` מתוך ${spots.length}`}
+        </p>
         <div className="list">
-          {visible.length === 0 && <div className="empty">אין חניות שמתאימות לסינון. נסו להסיר מסנן.</div>}
+          {spots.length === 0 && (
+            <div className="empty">
+              עוד אין חניות פנויות באזור. יש לכם חניה שעומדת ריקה? <Link href="/host">פרסמו אותה</Link>.
+            </div>
+          )}
+          {spots.length > 0 && visible.length === 0 && <div className="empty">אין חניות שמתאימות לסינון. נסו להסיר מסנן.</div>}
           {visible.map((s) => (
             <Link key={s.id} href={`/spots/${s.id}`} className="card">
               <div>
