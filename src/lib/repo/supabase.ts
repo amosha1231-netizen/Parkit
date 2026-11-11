@@ -1,7 +1,7 @@
 import { supabaseServer } from "../supabase/server";
-import { freeWindows } from "../time";
+import { extensionWindows, freeWindows } from "../time";
 import { publicPin } from "../neighborhoods";
-import type { Booking, Spot, SpotWithAvailability, Window } from "../types";
+import type { Booking, HostBooking, Spot, SpotWithAvailability, Window } from "../types";
 import { ERROR_TEXT, RepoError, type Repo } from "./types";
 
 interface SpotRow {
@@ -16,6 +16,8 @@ interface SpotRow {
   price_hour_agorot: number;
   price_day_agorot: number;
   description: string | null;
+  active: boolean;
+  schedule: string | null;
 }
 
 /** Parses a Postgres tstzrange such as ["2026-10-22 18:00:00+00","2026-10-23 04:00:00+00"). */
@@ -28,15 +30,22 @@ export function toRange(w: Window): string {
   return `[${w.start.toISOString()},${w.end.toISOString()})`;
 }
 
+/** Maps a Postgres error raised by our SQL functions to a RepoError with a known code. */
+function repoError(error: { message: string }): RepoError {
+  const code = Object.keys(ERROR_TEXT).find((k) => error.message.includes(k));
+  return new RepoError(code ?? error.message);
+}
+
 function toSpot(r: SpotRow): Spot {
   return {
     id: r.id, ownerId: r.owner_id, neighborhood: r.neighborhood, lat: r.lat, lng: r.lng,
     spotType: r.spot_type, access: r.access, hasEv: r.has_ev,
     priceHourAgorot: r.price_hour_agorot, priceDayAgorot: r.price_day_agorot, description: r.description,
+    active: r.active, schedule: r.schedule,
   };
 }
 
-const SPOT_COLUMNS = "id, owner_id, neighborhood, lat, lng, spot_type, access, has_ev, price_hour_agorot, price_day_agorot, description";
+const SPOT_COLUMNS = "id, owner_id, neighborhood, lat, lng, spot_type, access, has_ev, price_hour_agorot, price_day_agorot, description, active, schedule";
 
 async function attachFree(rows: SpotRow[]): Promise<SpotWithAvailability[]> {
   if (rows.length === 0) return [];
@@ -78,32 +87,23 @@ export const supabaseRepo: Repo = {
     return attachFree((data ?? []) as SpotRow[]);
   },
   async createSpot(input) {
+    // One SQL call, so a spot never goes live without its address or availability.
     const sb = await supabaseServer();
     const [lat, lng] = publicPin(input.neighborhood);
-    const { data, error } = await sb
-      .from("spots")
-      .insert({
-        neighborhood: input.neighborhood, lat, lng, spot_type: input.spotType, access: input.access,
-        has_ev: input.hasEv, price_hour_agorot: input.priceHourAgorot, price_day_agorot: input.priceDayAgorot,
-        description: input.description || null,
-      })
-      .select("id")
-      .single();
-    if (error) throw error;
-    const id = data.id as string;
-    const secret = await sb.from("spot_secrets").insert({ spot_id: id, address: input.address, access_instructions: input.accessInstructions || null });
-    if (secret.error) throw secret.error;
-    const avail = await sb.from("availability").insert(input.windows.map((w) => ({ spot_id: id, period: toRange(w) })));
-    if (avail.error) throw avail.error;
-    return id;
+    const { data, error } = await sb.rpc("create_spot", {
+      p_neighborhood: input.neighborhood, p_lat: lat, p_lng: lng, p_spot_type: input.spotType, p_access: input.access,
+      p_has_ev: input.hasEv, p_price_hour: input.priceHourAgorot, p_price_day: input.priceDayAgorot,
+      p_description: input.description || null, p_schedule: input.schedule,
+      p_address: input.address, p_access_instructions: input.accessInstructions || null,
+      p_windows: input.windows.map(toRange),
+    });
+    if (error) throw repoError(error);
+    return data as string;
   },
   async book(spotId, start, end, plate) {
     const sb = await supabaseServer();
     const { data, error } = await sb.rpc("book_spot", { p_spot: spotId, p_start: start.toISOString(), p_end: end.toISOString(), p_plate: plate });
-    if (error) {
-      const code = Object.keys(ERROR_TEXT).find((k) => error.message.includes(k));
-      throw new RepoError(code ?? error.message);
-    }
+    if (error) throw repoError(error);
     return (data as { id: string }).id;
   },
   async myBookings() {
@@ -134,7 +134,49 @@ export const supabaseRepo: Repo = {
   },
   async cancelBooking(id) {
     const sb = await supabaseServer();
-    const { error } = await sb.from("bookings").update({ status: "cancelled" }).eq("id", id);
+    const { error } = await sb.rpc("cancel_booking", { p_booking: id });
+    if (error) throw repoError(error);
+  },
+  async hostBookings() {
+    const user = await this.currentUser();
+    if (!user) return [];
+    const sb = await supabaseServer();
+    const { data, error } = await sb
+      .from("bookings")
+      .select("id, spot_id, period, plate, price_agorot, status, spots!inner(owner_id, neighborhood)")
+      .eq("spots.owner_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(100);
     if (error) throw error;
+    type Row = {
+      id: string; spot_id: string; period: string; plate: string; price_agorot: number;
+      status: HostBooking["status"]; spots: { neighborhood: string };
+    };
+    return (data as unknown as Row[])
+      .map((r): HostBooking => {
+        const w = parseRange(r.period);
+        return {
+          id: r.id, spotId: r.spot_id, neighborhood: r.spots.neighborhood, start: w.start, end: w.end,
+          plate: r.plate, priceAgorot: r.price_agorot, status: r.status,
+        };
+      })
+      .sort((a, b) => b.start.getTime() - a.start.getTime());
+  },
+  async setSpotActive(id, active) {
+    const sb = await supabaseServer();
+    // RLS limits updates to the owner; .select() tells us whether a row was actually changed.
+    const { data, error } = await sb.from("spots").update({ active }).eq("id", id).select("id");
+    if (error) throw error;
+    if (!data?.length) throw new RepoError("not_owner");
+  },
+  async extendAvailability(id, preset) {
+    const sb = await supabaseServer();
+    const { data: existing, error } = await sb.from("availability").select("period").eq("spot_id", id);
+    if (error) throw error;
+    const windows = extensionWindows(preset, (existing ?? []).map((x) => parseRange(x.period)), new Date());
+    const { error: updateError } = await sb.from("spots").update({ schedule: preset }).eq("id", id);
+    if (updateError) throw updateError;
+    const ins = await sb.from("availability").insert(windows.map((w) => ({ spot_id: id, period: toRange(w) })));
+    if (ins.error) throw ins.error.code === "42501" ? new RepoError("not_owner") : ins.error;
   },
 };

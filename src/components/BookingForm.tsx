@@ -1,20 +1,15 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { bookSpot, type FormState } from "@/app/actions";
 import { quote, shekels } from "@/lib/pricing";
+import { formatRange, fromJerusalemInput, toJerusalemInput } from "@/lib/time";
 
 interface Props {
   spotId: string;
   priceHourAgorot: number;
   priceDayAgorot: number;
   free: { start: string; end: string }[];
-}
-
-/** Value for <input type="datetime-local"> in the browser's own time zone. */
-function toLocalInput(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function roundUpQuarter(d: Date) {
@@ -33,25 +28,41 @@ export function BookingForm({ spotId, priceHourAgorot, priceDayAgorot, free }: P
   const first = free[0];
   const initialStart = roundUpQuarter(new Date(Math.max(Date.now(), new Date(first.start).getTime())));
   const initialEnd = new Date(Math.min(initialStart.getTime() + 2 * 3600000, new Date(first.end).getTime()));
-  const [start, setStart] = useState(toLocalInput(initialStart));
-  const [end, setEnd] = useState(toLocalInput(initialEnd));
+  const [start, setStart] = useState(toJerusalemInput(initialStart));
+  const [end, setEnd] = useState(toJerusalemInput(initialEnd));
   const [state, action, pending] = useActionState<FormState, FormData>(bookSpot, {});
+  const plateRef = useRef<HTMLInputElement>(null);
 
-  const s = new Date(start);
-  const e = new Date(end);
-  const valid = !isNaN(s.getTime()) && !isNaN(e.getTime()) && e > s;
+  // Remember the plate on this device so repeat drivers do not retype it.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("parkit.plate");
+      if (saved && plateRef.current && !plateRef.current.value) plateRef.current.value = saved;
+    } catch {}
+  }, []);
+  const rememberPlate = () => {
+    try {
+      if (plateRef.current?.value) localStorage.setItem("parkit.plate", plateRef.current.value.trim());
+    } catch {}
+  };
+
+  // Inputs are Israel wall-clock time (see toJerusalemInput), whatever zone the phone is set to.
+  const s = fromJerusalemInput(start);
+  const e = fromJerusalemInput(end);
+  const bothSet = !isNaN(s.getTime()) && !isNaN(e.getTime());
+  const valid = bothSet && e > s;
   const inWindow = valid && free.some((w) => new Date(w.start) <= s && new Date(w.end) >= e);
   const q = useMemo(() => (valid ? quote(priceHourAgorot, priceDayAgorot, s, e) : null), [valid, priceHourAgorot, priceDayAgorot, start, end]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <form action={action} className="panel">
+    <form action={action} onSubmit={rememberPlate} className="panel">
       <h2>הזמנה</h2>
       <input type="hidden" name="spotId" value={spotId} />
       <input type="hidden" name="start" value={valid ? s.toISOString() : ""} />
       <input type="hidden" name="end" value={valid ? e.toISOString() : ""} />
       <div className="row">
         <div className="field">
-          <label htmlFor="start">מ-</label>
+          <label htmlFor="start">מ- (שעון ישראל)</label>
           <input id="start" type="datetime-local" step={900} value={start} onChange={(ev) => setStart(ev.target.value)} required />
         </div>
         <div className="field">
@@ -61,15 +72,36 @@ export function BookingForm({ spotId, priceHourAgorot, priceDayAgorot, free }: P
       </div>
       <div className="chips">
         {DURATIONS.map(([h, label]) => (
-          <button key={h} type="button" className="chip" onClick={() => !isNaN(s.getTime()) && setEnd(toLocalInput(new Date(s.getTime() + h * 3600000)))}>
+          <button key={h} type="button" className="chip" onClick={() => !isNaN(s.getTime()) && setEnd(toJerusalemInput(new Date(s.getTime() + h * 3600000)))}>
             {label}
           </button>
         ))}
       </div>
-      {valid && !inWindow && <div className="error">הטווח הזה חורג מהזמינות של החניה.</div>}
+      {bothSet && !valid && <div className="error">שעת הסיום צריכה להיות אחרי שעת ההתחלה.</div>}
+      {valid && !inWindow && (
+        <div className="error">
+          הטווח הזה חורג מהזמינות של החניה. חלונות פנויים:
+          <div className="chips" style={{ marginTop: 6, marginBottom: 0 }}>
+            {free.slice(0, 4).map((w) => (
+              <button
+                key={w.start}
+                type="button"
+                className="chip"
+                onClick={() => {
+                  const ws = roundUpQuarter(new Date(Math.max(Date.now(), new Date(w.start).getTime())));
+                  setStart(toJerusalemInput(ws));
+                  setEnd(toJerusalemInput(new Date(Math.min(ws.getTime() + 2 * 3600000, new Date(w.end).getTime()))));
+                }}
+              >
+                {formatRange({ start: new Date(w.start), end: new Date(w.end) })}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="field">
         <label htmlFor="plate">מספר רכב</label>
-        <input id="plate" name="plate" inputMode="numeric" placeholder="12-345-67" required />
+        <input ref={plateRef} id="plate" name="plate" inputMode="numeric" autoComplete="off" dir="ltr" placeholder="12-345-67" maxLength={10} required />
       </div>
       {q && (
         <div className="sum">

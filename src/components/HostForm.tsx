@@ -19,7 +19,8 @@ export function HostForm({ neighborhoods, avgHourAgorot }: { neighborhoods: stri
 
   // Long windows sell mostly by the day, so estimate those at the daily rate.
   const gross = preset === "always" ? 30 * OCCUPANCY * day * 100 : MONTHLY_HOURS[preset] * OCCUPANCY * hour * 100;
-  const net = gross * (1 - SERVICE_FEE_RATE);
+  // The service fee is added on top of the driver's price, so the host keeps the full price.
+  const net = gross;
 
   return (
     <form action={action} className="panel">
@@ -34,7 +35,7 @@ export function HostForm({ neighborhoods, avgHourAgorot }: { neighborhoods: stri
         </div>
         <div className="field">
           <label htmlFor="address">כתובת מלאה</label>
-          <input id="address" name="address" placeholder="ז׳בוטינסקי 40, תל אביב" required />
+          <input id="address" name="address" placeholder="ז׳בוטינסקי 40, תל אביב" maxLength={200} required />
         </div>
       </div>
       <div className="row">
@@ -52,8 +53,8 @@ export function HostForm({ neighborhoods, avgHourAgorot }: { neighborhoods: stri
         </div>
       </div>
       <div className="field">
-        <label htmlFor="accessInstructions">הוראות כניסה (קוד, מספר חניה)</label>
-        <input id="accessInstructions" name="accessInstructions" placeholder="קוד לשער 4821#, חניה מספר 7" />
+        <label htmlFor="accessInstructions">הוראות כניסה (קוד, מספר חניה). נחשפות רק לנהג שהזמין</label>
+        <input id="accessInstructions" name="accessInstructions" placeholder="קוד לשער 4821#, חניה מספר 7" maxLength={500} />
       </div>
       <div className="field">
         <label>מתי פנוי? (לשבועיים הקרובים)</label>
@@ -80,12 +81,12 @@ export function HostForm({ neighborhoods, avgHourAgorot }: { neighborhoods: stri
       <label className="check"><input type="checkbox" name="hasEv" /> יש עמדת טעינה לרכב חשמלי</label>
       <div className="field">
         <label htmlFor="description">תיאור קצר (לא חובה)</label>
-        <textarea id="description" name="description" rows={2} placeholder="חניה רחבה, מתאימה לרכב משפחתי" />
+        <textarea id="description" name="description" rows={2} placeholder="חניה רחבה, מתאימה לרכב משפחתי" maxLength={500} />
       </div>
       <div className="sum">
         <span>הערכת הכנסה חודשית נטו</span>
         <span className="total">{shekels(net)}</span>
-        <span className="meta">בהנחת תפוסה של {OCCUPANCY * 100}% ואחרי עמלה של {SERVICE_FEE_RATE * 100}%</span>
+        <span className="meta">בהנחת תפוסה של {OCCUPANCY * 100}%. דמי השירות ({SERVICE_FEE_RATE * 100}%) משולמים על ידי הנהג, בנוסף למחיר שלכם.</span>
         <span />
       </div>
       {state.error && <div className="error" role="alert">{state.error}</div>}
